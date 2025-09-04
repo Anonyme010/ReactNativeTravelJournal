@@ -24,7 +24,7 @@ Piscine est une application React Native Expo qui sert de journal de voyage visu
 
 ### Installation
 
-1. Clonez le dépôt
+1. Clonez le dépôt "https://github.com/Anonyme010/ReactNativeTravelJournal/tree/main"
 
 2. Installez les dépendances
 "npm install"
