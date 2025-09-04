@@ -8,17 +8,18 @@ import LoadingScreen from '../components/shared/LoadingScreen';
 import { Linking } from 'react-native';
 
 import ProfileScreen from '../features/profile/ProfileScreen';
-import PhotosScreen from '../features/placeholder/PhotosPlaceholder';
-
-import CameraPlaceholder from '../features/placeholder/CameraPlaceholder';
-import CalendarPlaceholder from '../features/placeholder/CalendarPlaceholder';
-
-import MapScreen from '../features/placeholder/MapPlaceholder';
+import GalleryScreen from '../features/photos/GalleryScreen';
+import CameraScreen from '../features/camera/CameraScreen';
+import CalendarScreen from '../features/calendar/CalendarScreen';
+import MapScreen from '../features/map/MapScreen.js';
 
 // Auth screens
 import LoginScreen from '../features/auth/LoginScreen';
 import RegisterScreen from '../features/auth/RegisterScreen';
 import EmailVerificationHandler from '../features/auth/EmailVerificationHandler';
+
+// Provider context pour les photos
+import { PhotoProvider } from '../contexts/PhotoContext';
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -122,12 +123,21 @@ const TabNavigator = () => (
       },
       tabBarActiveTintColor: '#007bff',
       tabBarInactiveTintColor: 'gray',
+      // Improve performance by not keeping screens mounted in background
+      unmountOnBlur: route.name === 'Appareil', // Only unmount camera screen when not focused
     })}
   >
-    <Tab.Screen name="Appareil" component={CameraPlaceholder} options={{ title: 'Appareil' }} />
+    <Tab.Screen 
+      name="Appareil" 
+      component={CameraScreen} 
+      options={{ 
+        title: 'Appareil',
+        unmountOnBlur: true, // Ensure camera is unmounted when navigating away
+      }} 
+    />
     <Tab.Screen name="Carte" component={MapScreen} options={{ title: 'Carte' }} />
-    <Tab.Screen name="Calendrier" component={CalendarPlaceholder} options={{ title: 'Calendrier' }} />
-    <Tab.Screen name="Photos" component={PhotosScreen} options={{ title: 'Photos' }} />
+    <Tab.Screen name="Calendrier" component={CalendarScreen} options={{ title: 'Calendrier' }} />
+    <Tab.Screen name="Photos" component={GalleryScreen} options={{ title: 'Photos' }} />
     <Tab.Screen name="Profil" component={ProfileScreen} options={{ title: 'Profil' }} />
   </Tab.Navigator>
 );
@@ -157,9 +167,11 @@ const AppNavigator = () => {
   }
 
   return (
-    <NavigationContainer linking={linking}>
-      {currentUser ? <MainNavigator /> : <AuthNavigator />}
-    </NavigationContainer>
+    <PhotoProvider>
+      <NavigationContainer linking={linking}>
+        {currentUser ? <MainNavigator /> : <AuthNavigator />}
+      </NavigationContainer>
+    </PhotoProvider>
   );
 };
 

@@ -2,13 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, Alert, ScrollView, ActivityIndicator, Modal } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../../contexts/AuthContext';
+import { usePhotos } from '../../contexts/PhotoContext';
 import { updateUserProfile, logoutUser, sendEmailChangeVerification, cleanupPendingEmailStatus, changePassword } from '../../services/authService';
+import { updateUserStats } from '../../services/firestoreService';
 
 const ProfileScreen = () => {
   const { currentUser, userData, refreshUserData, forceRefresh, handlePasswordChange: authHandlePasswordChange } = useAuth();
+  const { photos } = usePhotos(); // Get photos directly from PhotoContext
   const navigation = useNavigation();
   
-  // Get display name from userData or fall back to currentUser if available
   const userDisplayName = userData?.displayName || currentUser?.displayName || '';
   
   const [isEditing, setIsEditing] = useState(false);
@@ -18,6 +20,12 @@ const ProfileScreen = () => {
     displayName: currentUser?.displayName || '',
     email: currentUser?.email || '',
     stats: { totalPhotos: 0, locationsVisited: 0 }
+  });
+  
+  const [calculatedStats, setCalculatedStats] = useState({ 
+    totalPhotos: 0, 
+    locationsVisited: 0,
+    topLocation: null
   });
   
   // Email change modal state
@@ -37,7 +45,6 @@ const ProfileScreen = () => {
   useEffect(() => {
     if (userData) {
       // Only update displayName if we're not currently editing
-      // This prevents overwriting the user's input while they're typing
       if (!isEditing) {
         setDisplayName(userData.displayName || currentUser?.displayName || '');
       }
@@ -59,6 +66,92 @@ const ProfileScreen = () => {
     }
   }, [userData, currentUser, refreshUserData, forceRefresh, isEditing]);
   
+  // Calculate stats directly from photos
+  useEffect(() => {
+    if (photos && photos.length > 0) {
+      console.log(`Calculating stats directly from ${photos.length} photos`);
+      
+      // Debug photos structure
+      photos.forEach((photo, index) => {
+        console.log(`Photo ${index} structure:`, {
+          id: photo.id,
+          address: photo.address,
+          location: photo.location,
+          hasLocation: !!photo.location,
+          hasAddress: !!photo.address
+        });
+      });
+      
+      // Count unique locations by FULL address
+      const uniqueLocations = new Set();
+      const locationCounts = {};
+      
+      // Extract city/locality from address (usually the second part after country)
+      const extractCity = (address) => {
+        const parts = address.split(',');
+        // If we have at least country, city
+        if (parts.length >= 2) {
+          return parts[1].trim(); // Return the city/locality
+        }
+        // Fallback to full address if structure is different
+        return address.trim();
+      };
+      
+      photos.forEach(photo => {
+        if (photo.address) {
+          // Use the full address as key for uniqueness
+          const fullAddress = photo.address.trim();
+          // Use the city/locality as display name (not the country)
+          const displayName = extractCity(photo.address);
+          
+          uniqueLocations.add(fullAddress);
+          
+          // Store both the count and display name
+          if (!locationCounts[fullAddress]) {
+            locationCounts[fullAddress] = {
+              count: 0,
+              displayName: displayName
+            };
+          }
+          
+          locationCounts[fullAddress].count += 1;
+        }
+      });
+      
+      // Debug unique locations found
+      console.log("Unique locations found:", Array.from(uniqueLocations));
+      
+      // Find most visited location
+      let topLocationAddress = null;
+      let topLocationDisplayName = null;
+      let maxCount = 0;
+      
+      Object.entries(locationCounts).forEach(([address, data]) => {
+        console.log(`Location: ${address}, Display Name: ${data.displayName}, Count: ${data.count}`);
+        if (data.count > maxCount) {
+          maxCount = data.count;
+          topLocationAddress = address;
+          topLocationDisplayName = data.displayName;
+        }
+      });
+      
+      const newStats = {
+        totalPhotos: photos.length,
+        locationsVisited: uniqueLocations.size,
+        topLocation: topLocationAddress ? {
+          name: topLocationDisplayName,
+          fullAddress: topLocationAddress,
+          count: maxCount
+        } : null
+      };
+      
+      console.log("Calculated stats directly:", newStats);
+      setCalculatedStats(newStats);
+    } else {
+      console.log("No photos available for stats calculation");
+    }
+  }, [photos]);
+
   // Add a separate useEffect to check on component mount and focus
   useEffect(() => {
     if (currentUser) {
@@ -69,9 +162,20 @@ const ProfileScreen = () => {
         forceRefresh().catch(() => {});
       }
       
+      // Force update user stats immediately
+      updateUserStats(currentUser.uid)
+        .then(() => console.log("User stats updated on profile mount"))
+        .catch(err => console.error("Error updating user stats on profile mount:", err));
+      
       // Also refresh when the screen comes into focus
       const unsubscribeFocus = navigation.addListener('focus', () => {
         console.log("Profile screen focused, forcing refresh");
+        
+        // Update user stats when screen is focused
+        updateUserStats(currentUser.uid)
+          .then(() => console.log("User stats updated on profile focus"))
+          .catch(err => console.error("Error updating user stats on profile focus:", err));
+        
         if (typeof forceRefresh === 'function') {
           forceRefresh().catch(() => {});
         }
@@ -86,6 +190,8 @@ const ProfileScreen = () => {
 
   // Use stats from userData or default to empty stats
   const stats = localUserData?.stats || { totalPhotos: 0, locationsVisited: 0 };
+  
+  console.log("Current user stats:", stats);
 
   // Handle name change
   const handleSave = async () => {
@@ -438,17 +544,46 @@ const ProfileScreen = () => {
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Statistiques</Text>
+          <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center'}}>
+            <Text style={styles.cardTitle}>Statistiques</Text>
+            <TouchableOpacity 
+              style={styles.refreshStatsButton}
+              onPress={async () => {
+                try {
+                  if (currentUser) {
+                    Alert.alert("Mise à jour", "Actualisation des statistiques...");
+                    await updateUserStats(currentUser.uid);
+                    await refreshUserData();
+                    Alert.alert("Succès", "Statistiques mises à jour");
+                  }
+                } catch (error) {
+                  console.error("Error refreshing stats:", error);
+                  Alert.alert("Erreur", "Impossible de rafraîchir les statistiques");
+                }
+              }}
+            >
+              <Text style={styles.refreshStatsButtonText}>Actualiser</Text>
+            </TouchableOpacity>
+          </View>
           
           <View style={styles.statsContainer}>
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>{stats.totalPhotos}</Text>
+              <Text style={styles.statValue}>{photos?.length || 0}</Text>
               <Text style={styles.statLabel}>Photos</Text>
             </View>
 
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>{stats.locationsVisited}</Text>
+              <Text style={styles.statValue}>{calculatedStats.locationsVisited || 0}</Text>
               <Text style={styles.statLabel}>Lieux</Text>
+            </View>
+            
+            <View style={styles.lieuFavoriItem}>
+              <Text style={styles.lieuFavoriLabel}>Lieu favori</Text>
+              <Text style={styles.lieuFavoriValue}>
+                {calculatedStats.topLocation?.name 
+                  ? calculatedStats.topLocation.name
+                  : 'Aucun lieu'}
+              </Text>
             </View>
           </View>
         </View>
@@ -701,12 +836,13 @@ const styles = StyleSheet.create({
   },
   statsContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
+    flexWrap: 'wrap',
     marginTop: 10,
   },
   statItem: {
     alignItems: 'center',
-    padding: 15,
+    padding: 10,
+    width: '50%',
   },
   statValue: {
     fontSize: 24,
@@ -714,9 +850,29 @@ const styles = StyleSheet.create({
     color: '#007bff',
   },
   statLabel: {
-    fontSize: 16,
+    fontSize: 14,
     color: '#555',
     marginTop: 5,
+    textAlign: 'center',
+  },
+  lieuFavoriItem: {
+    width: '100%', 
+    padding: 15,
+    marginTop: 10,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    borderLeftWidth: 4,
+    borderLeftColor: '#007bff',
+  },
+  lieuFavoriLabel: {
+    fontSize: 14,
+    color: '#555',
+    marginBottom: 5,
+  },
+  lieuFavoriValue: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#007bff',
   },
   logoutButton: {
     backgroundColor: '#f44336',
@@ -788,6 +944,18 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   refreshButtonText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  refreshStatsButton: {
+    backgroundColor: '#28a745',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 4,
+    alignSelf: 'flex-start',
+  },
+  refreshStatsButtonText: {
     color: 'white',
     fontSize: 12,
     fontWeight: 'bold',

@@ -1,7 +1,4 @@
 // Firestore service for database operations
-// NOTE: Most functions in this file are placeholders for future implementation.
-// These functions will be fully implemented once the photo, map, and calendar
-// features are ready. Current app uses authentication and profile management.
 import { 
   collection, 
   doc, 
@@ -33,100 +30,237 @@ export const addDocument = async (collectionName, data) => {
   }
 };
 
-// PLACEHOLDER: Add a photo document - will be implemented with camera feature
+// Add a photo document to Firestore
 export const addPhoto = async (photoData) => {
   try {
-    console.log('Placeholder: addPhoto not yet implemented');
-    console.log('Photo data structure expected:', {
-      userId: 'string - user ID',
-      imageUrl: 'string - URL to stored image',
-      location: 'object - {latitude, longitude}',
-      timestamp: 'date - when photo was taken',
-      description: 'string - optional description',
-      tags: 'array - optional tags'
-    });
+    const photoToAdd = {
+      userId: photoData.userId,
+      imageUrl: photoData.imageUrl,
+      date: photoData.date,
+      address: photoData.address || null,
+      location: photoData.location || null,
+      description: photoData.description || '',
+      tags: photoData.tags || [],
+      timestamp: Timestamp.now()
+    };
     
-    // This will be implemented when camera and storage features are ready
-    return 'placeholder-photo-id';
+    const docRef = await addDoc(collection(db, 'photos'), photoToAdd);
+    return docRef.id;
   } catch (error) {
-    console.log('Error in addPhoto placeholder:', error);
+    console.log('Error in addPhoto:', error);
     throw error;
   }
 };
 
-// PLACEHOLDER: Get photos by user ID - will be implemented with photos feature
+// Get photos by user ID 
 export const getPhotosByUser = async (userId) => {
   try {
-    console.log('Placeholder: getPhotosByUser not yet implemented');
-    // This will return mock data until the photos feature is implemented
-    return [
-      /* Example data structure for future implementation:
-      {
-        id: 'photo1',
-        userId: userId,
-        imageUrl: 'https://cloudinary.com/image1.jpg',
-        location: { latitude: 48.8584, longitude: 2.2945 },
-        timestamp: Timestamp.now(),
-      }
-      */
-    ];
+    const photosRef = collection(db, 'photos');
+    const q = query(
+      photosRef, 
+      where("userId", "==", userId),
+      orderBy("timestamp", "desc")
+    );
+    
+    const querySnapshot = await getDocs(q);
+    
+    const photos = [];
+    querySnapshot.forEach((doc) => {
+      photos.push({
+        id: doc.id,
+        ...doc.data()
+      });
+    });
+    
+    return photos;
   } catch (error) {
-    console.log('Error in getPhotosByUser placeholder:', error);
+    console.log('Error in getPhotosByUser:', error);
     return [];
   }
 };
 
-// PLACEHOLDER: Get photos by date - will be implemented with calendar feature
+// Get photos by date
 export const getPhotosByDate = async (userId, date) => {
   try {
-    console.log('Placeholder: getPhotosByDate not yet implemented');
-    console.log('Will filter photos for user', userId, 'on date', date);
-    // This will return mock data until the calendar feature is implemented
-    return [];
+    const photosRef = collection(db, 'photos');
+    const q = query(
+      photosRef,
+      where("userId", "==", userId),
+      where("date", "==", date),
+      orderBy("timestamp", "desc")
+    );
+    
+    const querySnapshot = await getDocs(q);
+    
+    const photos = [];
+    querySnapshot.forEach((doc) => {
+      photos.push({
+        id: doc.id,
+        ...doc.data()
+      });
+    });
+    
+    return photos;
   } catch (error) {
-    console.log('Error in getPhotosByDate placeholder:', error);
+    console.log('Error in getPhotosByDate:', error);
     return [];
   }
 };
 
-// PLACEHOLDER: Get photo dates for calendar - will be implemented with calendar feature
+// Get unique dates with photos for calendar
 export const getPhotoDates = async (userId) => {
   try {
-    console.log('Placeholder: getPhotoDates not yet implemented');
-    // This will return mock data until the calendar feature is implemented
-    return [];
+    const photos = await getPhotosByUser(userId);
+    
+    // Extract unique dates
+    const uniqueDates = [...new Set(photos.map(photo => photo.date))];
+    
+    return uniqueDates;
   } catch (error) {
-    console.log('Error in getPhotoDates placeholder:', error);
+    console.log('Error in getPhotoDates:', error);
     return [];
   }
 };
 
-// PLACEHOLDER: Update user statistics - will be implemented with photos and map features
+// Update user statistics after adding photos
 export const updateUserStats = async (userId) => {
   try {
-    console.log('Placeholder: updateUserStats not yet implemented');
-    // This is just a placeholder - in the future, this will:
-    // 1. Count the user's total photos
-    // 2. Count unique locations visited
-    // 3. Update the user document with these stats
+    console.log("Starting updateUserStats for user:", userId);
     
-    // For now, just return default stats
+    // Récupérer toutes les photos de l'utilisateur
+    const photos = await getPhotosByUser(userId);
+    console.log(`Found ${photos.length} photos for user ${userId}`);
+    
+    // Compter le nombre total de photos
+    const totalPhotos = photos.length;
+    
+    // Utilisez un Set pour stocker des adresses uniques (complètes)
+    const uniqueAddresses = new Set();
+    
+    // Créer un objet pour compter les occurrences de chaque lieu
+    const locationCounts = {};
+    
+    // Extract city/locality from address (the second part after country)
+    const extractCity = (address) => {
+      const parts = address.split(',');
+      // If we have at least country, city
+      if (parts.length >= 2) {
+        return parts[1].trim(); // Return the city/locality
+      }
+      return address.trim();
+    };
+    
+    // Parcourir toutes les photos et compter les adresses uniques
+    photos.forEach(photo => {
+      console.log("Processing photo with address:", photo.address);
+      
+      if (photo.address && photo.address.trim() !== '') {
+        const fullAddress = photo.address.trim();
+        const displayName = extractCity(photo.address);
+        uniqueAddresses.add(fullAddress);
+        
+        // Store both count and display name
+        if (!locationCounts[fullAddress]) {
+          locationCounts[fullAddress] = {
+            count: 0,
+            displayName: displayName
+          };
+        }
+        
+        locationCounts[fullAddress].count += 1;
+      }
+    });
+    
+    // Nombre de lieux uniques
+    const locationsVisited = uniqueAddresses.size;
+    console.log(`Counted ${locationsVisited} unique locations`);
+    
+    // Trouver le lieu le plus fréquent
+    let topLocationAddress = null;
+    let topLocationDisplayName = null;
+    let maxCount = 0;
+    
+    Object.entries(locationCounts).forEach(([address, data]) => {
+      console.log(`Location: ${address}, Display Name: ${data.displayName}, Count: ${data.count}`);
+      if (data.count > maxCount) {
+        maxCount = data.count;
+        topLocationAddress = address;
+        topLocationDisplayName = data.displayName;
+      }
+    });
+    
+    // Préparer les données pour le lieu top
+    const topLocation = topLocationAddress ? {
+      name: topLocationDisplayName,
+      fullAddress: topLocationAddress,
+      count: maxCount
+    } : null;
+    
+    console.log('Stats calculées:', { totalPhotos, locationsVisited, topLocation });
+    
+    // Mettre à jour le document de l'utilisateur avec ces statistiques
+    const userRef = doc(db, 'users', userId);
+    await updateDoc(userRef, {
+      stats: {
+        totalPhotos,
+        locationsVisited,
+        topLocation,
+        lastUpdated: Timestamp.now()
+      }
+    });
+    
     return {
-      totalPhotos: 0,
-      locationsVisited: 0
+      totalPhotos,
+      locationsVisited,
+      topLocation
     };
   } catch (error) {
-    console.log('Error in updateUserStats placeholder:', error);
-    return { totalPhotos: 0, locationsVisited: 0 };
+    console.error('Error in updateUserStats:', error);
+    return { totalPhotos: 0, locationsVisited: 0, topLocation: null };
   }
 };
 
-// PLACEHOLDER: Get user statistics - will be implemented with photos and map features
+// Get photo by ID
+export const getPhoto = async (photoId) => {
+  try {
+    const photoDoc = await getDoc(doc(db, 'photos', photoId));
+    if (photoDoc.exists()) {
+      return {
+        id: photoDoc.id,
+        ...photoDoc.data()
+      };
+    }
+    return null;
+  } catch (error) {
+    console.error('Error getting photo:', error);
+    throw error;
+  }
+};
+
+// Delete a photo
+export const deletePhoto = async (photoId) => {
+  try {
+    // First get the photo document to retrieve any Cloudinary info
+    const photoDoc = await getDoc(doc(db, 'photos', photoId));
+    if (!photoDoc.exists()) {
+      console.log(`Photo ${photoId} does not exist`);
+      return false;
+    }
+    
+    // Delete from Firestore
+    await deleteDoc(doc(db, 'photos', photoId));
+    console.log(`Photo ${photoId} deleted successfully from Firestore`);
+    
+    return true;
+  } catch (error) {
+    console.error('Error deleting photo:', error);
+    throw error;
+  }
+};
+
+// Get user statistics
 export const getUserStats = async (userId) => {
   try {
-    console.log('Placeholder: getUserStats not yet implemented');
-    
-    // For now, just check if the user exists and return default stats
     const userDoc = await getDoc(doc(db, 'users', userId));
     
     if (userDoc.exists()) {
@@ -134,20 +268,23 @@ export const getUserStats = async (userId) => {
       // Return existing stats if any, otherwise default to zeros
       return userData.stats || {
         totalPhotos: 0,
-        locationsVisited: 0
+        locationsVisited: 0,
+        topLocation: null
       };
     } else {
-      console.log('User not found in getUserStats placeholder');
+      console.log('User not found in getUserStats');
       return {
         totalPhotos: 0,
-        locationsVisited: 0
+        locationsVisited: 0,
+        topLocation: null
       };
     }
   } catch (error) {
-    console.log('Error in getUserStats placeholder:', error);
+    console.log('Error in getUserStats:', error);
     return {
       totalPhotos: 0,
-      locationsVisited: 0
+      locationsVisited: 0,
+      topLocation: null
     };
   }
 };
